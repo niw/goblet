@@ -35,7 +35,6 @@ import (
 	"github.com/google/gitprotocolio"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
-	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -132,14 +131,9 @@ func (r *managedRepository) lsRefsUpstream(command []*gitprotocolio.ProtocolV2Re
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "cannot construct a request object: %v", err)
 	}
-	t, err := r.config.TokenSource.Token()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "cannot obtain an OAuth2 access token for the server: %v", err)
-	}
 	req.Header.Add("Content-Type", "application/x-git-upload-pack-request")
 	req.Header.Add("Accept", "application/x-git-upload-pack-result")
 	req.Header.Add("Git-Protocol", "version=2")
-	t.SetAuthHeader(req)
 
 	startTime := time.Now()
 	resp, err := http.DefaultClient.Do(req)
@@ -189,26 +183,15 @@ func (r *managedRepository) fetchUpstream() (err error) {
 		splitGitFetch = true
 	}
 
-	var t *oauth2.Token
 	startTime := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if splitGitFetch {
 		// Fetch heads and changes first.
-		t, err = r.config.TokenSource.Token()
-		if err != nil {
-			err = status.Errorf(codes.Internal, "cannot obtain an OAuth2 access token for the server: %v", err)
-			return err
-		}
-		err = runGit(op, r.localDiskPath, "-c", "http.extraHeader=Authorization: Bearer "+t.AccessToken, "fetch", "--progress", "-f", "-n", "origin", "refs/heads/*:refs/heads/*", "refs/changes/*:refs/changes/*")
+		err = runGit(op, r.localDiskPath, "fetch", "--progress", "-f", "-n", "origin", "refs/heads/*:refs/heads/*", "refs/changes/*:refs/changes/*")
 	}
 	if err == nil {
-		t, err = r.config.TokenSource.Token()
-		if err != nil {
-			err = status.Errorf(codes.Internal, "cannot obtain an OAuth2 access token for the server: %v", err)
-			return err
-		}
-		err = runGit(op, r.localDiskPath, "-c", "http.extraHeader=Authorization: Bearer "+t.AccessToken, "fetch", "--progress", "-f", "origin")
+		err = runGit(op, r.localDiskPath, "fetch", "--progress", "-f", "origin")
 	}
 	logStats("fetch", startTime, err)
 	if err == nil {
